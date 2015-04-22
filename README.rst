@@ -1,8 +1,8 @@
 django-salesforce
 =================
 
-.. image:: https://travis-ci.org/freelancersunion/django-salesforce.svg?branch=master
-   :target: https://travis-ci.org/freelancersunion/django-salesforce
+.. image:: https://travis-ci.org/django-salesforce/django-salesforce.svg?branch=master
+   :target: https://travis-ci.org/django-salesforce/django-salesforce
 
 This library allows you to load and edit the objects in any Salesforce instance
 using Django models. The integration is fairly complete, and generally seamless
@@ -32,13 +32,43 @@ Quick Start
 
     'salesforce': {
         'ENGINE': 'salesforce.backend',
-        "CONSUMER_KEY" : '',
-        "CONSUMER_SECRET" : '',
+        'CONSUMER_KEY': '',
+        'CONSUMER_SECRET': '',
         'USER': '',
         'PASSWORD': '',
         'HOST': 'https://test.salesforce.com',
     }
 
+   In the example above, all fields should be populated as follows:
+
+   * ``CONSUMER_KEY`` and ``CONSUMER_SECRET`` values are for the app used to
+     connect to your Salesforce account. Instructions for how get these are in
+     the Salesforce REST API Documentation. Key and secret can be created on
+     web by:
+     - Salesforce web > Setup > App Setup > Create > Apps > Connected apps >
+       New.
+     - Click "Enable OAuth Settings" in API, then select "Access and manage
+       your data (api)" from available OAuth Scopes.
+     - Other red marked fields must be filled, but are not relevant for Django.
+   * ``USER`` is the username used to connect.
+   * ``PASSWORD`` is a concatenation of the user's password and security token.
+     Security token can be omitted if the local IP address has been
+     whitelisted in Security Controls / Network Access.
+   * ``HOST`` is ``https://test.salesforce.com`` to access the sandbox, or
+     ``https://login.salesforce.com`` to access production.
+
+   If an error message is received while connecting, review the error received.
+   Everything in the error message between ``{...}`` is exactly copied from the
+   Salesforce error message to assist debugging.
+
+   See also: `Information on settings up Salesforce connected apps
+   <https://help.salesforce.com/apex/HTViewHelpDoc?id=connected_app_create.htm>`_.
+
+   **Note about permissions**: Everything for a project can work under
+   restricted Salesforce user account if it has access to objects in your
+   models. Introspection (inspectdb) doesn't require any permissions. Running
+   tests for django_salesforce requires many permissions or Administrator
+   account for sandbox.
 
 4. **(optional)** To override the default timeout of 15 seconds,
    define ``SALESFORCE_QUERY_TIMEOUT`` in your settings file::
@@ -57,15 +87,21 @@ Quick Start
         "salesforce.router.ModelRouter"
     ]
 
-7. Define a model that extends ``salesforce.models.SalesforceModel``
-   or export the complete SF schema by
-   ``python manage.py inspectdb --database=salesforce`` and simplify it
-   to what you need.
+7. Define a model that extends ``salesforce.models.Model`` or export the
+   complete SF schema by ``python manage.py inspectdb --database=salesforce``
+   and simplify it to what you need.
 
-8. If you want to use the model in the Django admin interface, use a
-   ModelAdmin that extends ``salesforce.admin.RoutedModelAdmin``
+8. You're all done! Just use your model like a normal Django model.
 
-9. You're all done! Just use your model like a normal Django model.
+9. (Optional) Create a normal Django admin.py module for your Salesforce model.
+
+Primary Key
+-----------
+Salesforce doesn't allow you to define custom primary keys, so django-salesforce
+will add them automatically in all cases. You can override capitalization and use
+primary key `id` by configuring `SF_PK='id'` in your project settings. The previous
+capitalization of `Id` is only for old projects, but it will stay as the default
+variant until `django-salesforce>=0.5`.
 
 Foreign Key Support
 -------------------
@@ -116,6 +152,9 @@ Example of `Note` model is in `salesforce.testrunner.example.models.Note`.
 
 Advanced usage
 --------------
+-  **Multiple Inheritance from Abstract Models** - Many Salesforce models use
+   the same sets of fields, but using a single inheritance tree would be too
+   complicated and fragile. Proxy models and mixins are also supported.
 
 -  **Testing** - By default, tests will be run against the SFDC connection
    specified in settings.py, which will substantially increase testing time.
@@ -177,6 +216,30 @@ Advanced usage
    name ``Contact`` and all tables that are prefixed with ``Account``. This
    filter works with all supported database types.
 
+-  **Accessing the Salesforce SOAP API** - There are some Salesforce actions that cannot or can hardly
+   be implemented using the generic relational database abstraction and the REST API.
+   For some of these actions there is an available endpoint in the old Salesforce API
+   (SOAP) that can be accessed using our utility module. In order to use that module,
+   you will need to install an additional dependency ::
+
+     pip install beatbox
+
+   Here is an example of usage with ``Lead`` conversion ::
+
+     from salesforce.utils import convert_lead
+
+     lead = Lead.objects.all()[0]
+     response = convert_lead(lead)
+
+   For the particular case of ``Lead`` conversion, beware that having
+   some *custom* and *required* fields in either ``Contact``,
+   ``Account`` or ``Opportunity`` is not supported. This arises from
+   the fact that the conversion mechanism on the Salesforce side is only
+   meant to deal with standard Salesforce fields, so it does not really
+   care about populating custom fields at insert time.
+
+
+
 Caveats
 -------
 
@@ -201,3 +264,60 @@ here are the potential pitfalls and unimplemented operations:
 -  **Database Sync** — ``syncdb`` will only create new databases in non-SF
    databases (useful for unit tests); SFDC classes are assumed to already
    exist with the appropriate permissions.
+
+Experimental Features
+---------------------
+
+-  If you use multiple Salesforce databases or multiple instances of AdminSite, you'll
+   probably want to extend ``salesforce.admin.RoutedModelAdmin``" in your admin.py
+
+-  **Dynamic authorization** - The original use-case for django-salesforce assumed
+   use of a single set of credentials with read-write access to all necessary objects.
+   It's now possible to write applications that use OAuth to interact with a Salesforce
+   instance's data on your end user's behalf. You simply need to know or request the 
+   `Access Token <https://www.salesforce.com/us/developer/docs/api_rest/Content/quickstart_oauth.htm>`
+   for the user in question. In this situation, it's not necessary to save any credentials
+   for SFDC in Django settings. The manner in which you request or transmit this token
+   (e.g., in the `Authorization:` header) is left up to the developer at this time.
+
+   Configure your ``DATABASES`` setting as follows::
+
+    'salesforce': {
+        'ENGINE': 'salesforce.backend',
+        'HOST': 'https://your-site.salesforce.com',
+        'CONSUMER_KEY': '.',
+        'CONSUMER_SECRET': '.',
+        'USER': 'dynamic auth',
+        'PASSWORD': '.',
+    }
+
+   A static SFDC connection can be specified with the data server URL in "HOST"
+   Note that in this case we're not using the URL of the login server — the data
+   server URL can be also used for login.
+   
+   Items with `'.'` value are ignored when using dynamic auth, but cannot be left
+   empty.
+
+   The last step is to enable the feature in your project in some way, probably by
+   creating a Django middleware component. Then at the beginning of each request::
+
+      from django.db import connections
+      # After you get the access token for the user in some way
+      # authenticate to SFDC with
+      connections['salesforce'].sf_session.auth.dynamic_start(access_token)
+      
+      # or to override the `instance_url` on a per-request basis
+      connections['salesforce'].sf_session.auth.dynamic_start(access_token, instance_url)
+
+   Make sure to purge the access token at end of request::
+
+        connections['salesforce'].sf_session.auth.dynamic_end()
+
+   You can continue to supply static credentials in your project settings, but they will
+   only be used before calling dynamic_start() and/or after calling dynamic_end().
+
+Backwards-incompatible changes
+------------------------------
+
+-  The name of primary key is currently `id`. The backward compatible behaviour
+   can be reached by settings `SF_PK='Id'`.
